@@ -2,6 +2,34 @@ use std::env;
 use std::process;
 
 #[derive(Debug)]
+struct Docker {
+    config: Config,
+}
+
+impl Docker {
+    fn new(config: Config) -> Docker {
+        Docker { config }
+    }
+
+    fn pull_docker_image(&self) -> Result<(), String> {
+        let output = process::Command::new("docker")
+            .arg("pull")
+            .arg(&self.config.docker_image)
+            .output()
+            .map_err(|e| format!("Failed to execute docker command: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Docker pull failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
+        }
+    }
+}
+
+#[derive(Debug)]
 struct Config {
     docker_image: String,
 }
@@ -14,23 +42,6 @@ impl Config {
         let docker_image = args[1].clone();
         Ok(Config { docker_image })
     }
-
-    fn pull_docker_image(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let output = process::Command::new("docker")
-            .arg("pull")
-            .arg(&self.docker_image)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(format!(
-                "Failed to pull docker image: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ).into());
-        }
-
-        println!("Successfully pulled docker image: {}", self.docker_image);
-        Ok(())
-    }
 }
 
 fn main() {
@@ -42,7 +53,9 @@ fn main() {
     });
 
     println!("Docker image: {}", config.docker_image);
-    if let Err(e) = config.pull_docker_image() {
+    let docker = Docker::new(config);
+
+    if let Err(e) = docker.pull_docker_image() {
         eprintln!("Application error: {}", e);
         process::exit(1);
     }
@@ -75,7 +88,8 @@ mod tests {
         let config = Config {
             docker_image: String::from("hello-world"),
         };
-        let result = config.pull_docker_image();
+        let docker = Docker::new(config);
+        let result = docker.pull_docker_image();
         assert!(result.is_ok());
     }
 
@@ -84,7 +98,8 @@ mod tests {
         let config = Config {
             docker_image: String::from("non_existent_image"),
         };
-        let result = config.pull_docker_image();
+        let docker = Docker::new(config);
+        let result = docker.pull_docker_image();
         assert!(result.is_err());
     }
 }
