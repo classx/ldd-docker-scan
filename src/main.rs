@@ -1,14 +1,26 @@
 use std::env;
 use std::process;
+use rand::{distributions::Alphanumeric, Rng};
+
+fn generate_random_name() -> String {
+    let name: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(10)
+        .map(char::from)
+        .collect();
+    format!("container_{}", name)
+}
 
 #[derive(Debug)]
 struct Docker {
+    name: String,
     config: Config,
 }
 
 impl Docker {
     fn new(config: Config) -> Docker {
-        Docker { config }
+        let name = generate_random_name();
+        Docker { name, config }
     }
 
     fn pull_docker_image(&self) -> Result<(), String> {
@@ -23,6 +35,30 @@ impl Docker {
         } else {
             Err(format!(
                 "Docker pull failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
+        }
+    }
+
+    fn run_docker_image_as_daemon(&self) -> Result<(), String> {
+        let output = process::Command::new("docker")
+            .arg("run")
+            .arg("--name")
+            .arg(&self.name)
+            .arg("-d")
+            .arg("-ti")
+            .arg("--rm")
+            //.arg("--entrypoint")
+            //.arg("sh")
+            .arg(&self.config.docker_image)
+            .output()
+            .map_err(|e| format!("Failed to execute docker command: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Docker run failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             ))
         }
@@ -102,4 +138,37 @@ mod tests {
         let result = docker.pull_docker_image();
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_run_docker_image_as_daemon_success() {
+        let config = Config {
+            docker_image: String::from("alpine"),
+        };
+        let docker = Docker::new(config);
+        let _ = docker.pull_docker_image();
+        let result = docker.run_docker_image_as_daemon();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_docker_image_as_daemon_failure() {
+        let config = Config {
+            docker_image: String::from("non_existent_image"),
+        };
+        let docker = Docker::new(config);
+        let result = docker.run_docker_image_as_daemon();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_docker_new() {
+        let config = Config {
+            docker_image: String::from("hello-world"),
+        };
+        let docker = Docker::new(config);
+        assert_eq!(docker.config.docker_image, "hello-world");
+        assert!(docker.name.starts_with("container_"));
+    }
+
+
 }
